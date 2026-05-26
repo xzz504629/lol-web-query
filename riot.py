@@ -107,6 +107,43 @@ class RateLimiter:
         self.min_timestamps.append(now)
 
 
+# 保底英雄列表（在线数据加载失败时使用）
+FALLBACK_CHAMPIONS = {
+    266: "暗裔剑魔", 103: "九尾妖狐", 84: "暗黑元首", 12: "牛头酋长",
+    32: "暗影之拳", 34: "殇之木乃伊", 1: "黑暗之女", 22: "寒冰射手",
+    136: "影流之主", 268: "虚空掠夺者", 157: "疾风剑豪", 76: "诺克萨斯之手",
+    98: "曙光女神", 78: "酒桶", 102: "龙血武姬", 81: "战争女神",
+    92: "虚空恐惧", 122: "不祥之刃", 131: "皎月女神", 119: "荣耀行刑官",
+    36: "祖安狂人", 2: "狂战士", 21: "皮城女警", 4: "卡牌大师",
+    29: "恶魔小丑", 30: "亡灵战神", 37: "琴瑟仙女", 40: "蒸汽机器人",
+    41: "潮汐海灵", 43: "不祥之刃", 44: "永恒梦魇", 45: "魔蛇之拥",
+    48: "皮城执法官", 51: "诡术妖姬", 53: "魂锁典狱长", 55: "邪恶小法师",
+    58: "蛮族之王", 59: "刀锋舞者", 60: "蜘蛛女皇", 61: "战争女神",
+    62: "齐天大圣", 63: "复仇焰魂", 67: "暗夜猎手", 69: "众星之子",
+    72: "水晶先锋", 74: "审判天使", 75: "沙漠死神", 77: "永恒梦魇",
+    79: "元素女皇", 80: "虚空先知", 82: "铁铠冥魂", 85: "复仇之矛",
+    86: "无极剑圣", 89: "众星之子", 90: "战争之影", 91: "影流之主",
+    96: "深渊巨口", 99: "魔蛇之拥", 101: "虚空行者", 104: "惩戒之箭",
+    105: "机械先驱", 106: "雷霆咆哮", 110: "猩红收割者", 111: "法外狂徒",
+    112: "机械公敌", 113: "盲僧", 114: "远古巫灵", 115: "爆破鬼才",
+    117: "生化魔人", 120: "战争之影", 121: "虚空女皇", 126: "审判天使",
+    127: "寒冰射手", 133: "德玛西亚之力", 134: "亡灵战神", 141: "不祥之刃",
+    142: "水晶先锋", 143: "祖安狂人", 145: "诺克萨斯首领", 150: "暮光之眼",
+    154: "皮城执法官", 157: "疾风剑豪", 161: "虚空女皇", 163: "赏金猎人",
+    166: "魂锁典狱长", 201: "元素女皇", 202: "无极剑圣", 203: "刀锋之影",
+    221: "赏金猎人", 222: "魂锁典狱长", 223: "沙漠死神", 234: "暗夜猎手",
+    235: "殇之木乃伊", 236: "皮城女警", 238: "疾风剑豪", 240: "诺克萨斯之手",
+    242: "战争女神", 245: "时间刺客", 246: "冰晶凤凰", 254: "虚空遁地兽",
+    257: "圣枪游侠", 261: "虚空恐惧", 262: "战争之影", 263: "虚空先知",
+    264: "暗裔剑魔", 267: "魂锁典狱长", 268: "虚空掠夺者", 350: "暮光之眼",
+    412: "魂锁典狱长", 420: "正义天使", 421: "虚空掠夺者", 427: "魔法猫咪",
+    429: "暗影之拳", 432: "暗黑元首", 497: "虚空女皇", 498: "虚空女皇",
+    516: "亡灵勇士", 517: "不灭狂雷", 518: "纳祖玛之裔", 523: "星界游神",
+    555: "星籁歌姬", 777: "暗裔剑魔", 887: "魔法猫咪", 888: "皮城女警",
+    950: "刀锋舞者", 951: "九尾妖狐",
+}
+
+
 class RiotClient:
     """Riot Games API 客户端"""
 
@@ -310,26 +347,25 @@ class RiotClient:
 
     # ========== 英雄数据 ==========
 
-    def load_champion_data(self, version: str = "14.10.1"):
-        """加载英雄数据映射"""
+    def load_champion_data(self):
+        """加载英雄数据"""
+        # 先用保底英雄列表
+        self._champion_map = dict(FALLBACK_CHAMPIONS)
+        logger.info(f"使用保底英雄列表: {len(self._champion_map)} 个英雄")
+
+        # 尝试在线加载更完整的数据（失败也不影响保底）
         try:
-            url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/zh_CN/champion.json"
+            url = "https://ddragon.leagueoflegends.com/cdn/14.10.1/data/zh_CN/champion.json"
             resp = requests.get(url, timeout=10)
             if resp.status_code == 200:
                 data = resp.json().get("data", {})
-                self._champion_map = {}
-                self._champion_name_to_id = {}
                 for champ_name, champ_data in data.items():
-                    champ_id = int(champ_data["key"])
-                    cn_name = champ_data.get("name", champ_name)
-                    self._champion_map[champ_id] = cn_name
-                    self._champion_name_to_id[cn_name] = champ_id
-                    self._champion_name_to_id[champ_name] = champ_id
-                logger.info(f"已加载 {len(self._champion_map)} 个英雄数据")
-                return True
+                    self._champion_map[int(champ_data["key"])] = champ_data.get("name", champ_name)
+                logger.info(f"在线数据已更新: {len(self._champion_map)} 个英雄")
         except Exception as e:
-            logger.warning(f"加载英雄数据失败: {e}")
-        return False
+            logger.info(f"在线数据不可用，使用保底列表: {e}")
+
+        return True
 
     def get_champion_name(self, champion_id: int) -> str:
         """获取英雄中文名"""

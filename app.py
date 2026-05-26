@@ -121,13 +121,35 @@ def api_search():
                     "code": "NEED_RIOT_ID",
                 }), 400
             else:
-                # 非国服: 用 summoner-v4 API
-                summoner = riot.get_summoner_by_name(server, name)
+                # 非国服: 先用 Account API 尝试（默认标签 KR1/NA1）
+                summoner = None
+                for default_tag in get_default_tags(server):
+                    account = riot.get_account_by_riot_id(routing, name, default_tag)
+                    if account and account.get("puuid"):
+                        puuid = account["puuid"]
+                        logger.info(f"✅ Account API查到: {name}#{default_tag} puuid={puuid[:8]}")
+                        summoner = {
+                            "name": account.get("gameName", name),
+                            "puuid": puuid,
+                            "summonerLevel": 0,
+                            "profileIconId": 0,
+                            "id": puuid,
+                            "accountId": "",
+                            "gameName": account.get("gameName", name),
+                            "tagLine": account.get("tagLine", default_tag),
+                        }
+                        break
+
                 if not summoner:
-                    return jsonify({
-                        "error": f"在{server_info['name']}未找到召唤师「{name}」",
-                        "code": "NOT_FOUND",
-                    }), 404
+                    # 兜底: 用旧版 summoner-v4
+                    summoner = riot.get_summoner_by_name(server, name)
+                    if summoner:
+                        logger.info(f"✅ summoner-v4查到: {summoner.get('name')} puuid={'有值' if summoner.get('puuid') else '空!!!'}")
+                    else:
+                        return jsonify({
+                            "error": f"在{server_info['name']}未找到召唤师「{name}」",
+                            "code": "NOT_FOUND",
+                        }), 404
 
         puuid = summoner.get("puuid", "")
         summoner_id = summoner.get("id", "")
@@ -303,6 +325,28 @@ def api_match_detail(match_id):
 def api_champions():
     """获取英雄列表"""
     return jsonify(riot._champion_map)
+
+
+def get_default_tags(server: str) -> list:
+    """根据服务器获取默认的 Riot ID 标签"""
+    tags = {
+        "kr": ["KR1", "KR2"],
+        "na1": ["NA1"],
+        "euw1": ["EUW"],
+        "eun1": ["EUNE"],
+        "jp1": ["JP1"],
+        "oc1": ["OC1"],
+        "br1": ["BR1", "BR2"],
+        "la1": ["LA1"],
+        "la2": ["LA2"],
+        "tr1": ["TR1"],
+        "ph2": ["PH2"],
+        "sg2": ["SG2"],
+        "th2": ["TH2"],
+        "vn2": ["VN2"],
+        "tw2": ["TW2"],
+    }
+    return tags.get(server, ["00000"])
 
 
 # ========== 启动 ==========
