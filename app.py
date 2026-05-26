@@ -327,6 +327,46 @@ def api_champions():
     return jsonify(riot._champion_map)
 
 
+@app.route("/api/debug-search")
+def api_debug_search():
+    """调试搜索 - 返回所有搜索方式的原始结果"""
+    name = request.args.get("name", "").strip()
+    server = request.args.get("server", "kr")
+
+    if not name or server not in SERVERS:
+        return jsonify({"error": "参数无效"}), 400
+
+    results = {"searches": []}
+    routing = SERVERS[server]["routing"]
+
+    # 尝试 Account API 用常见标签
+    for tag in (get_default_tags(server) + ["00000"]):
+        try:
+            result = riot.get_account_by_riot_id(routing, name, tag)
+            results["searches"].append({
+                "method": f"Account API ({name}#{tag})",
+                "success": result is not None,
+                "has_puuid": result.get("puuid") is not None if result else False,
+                "data": {k: v for k, v in (result or {}).items() if k in ("puuid", "gameName", "tagLine")},
+            })
+        except Exception as e:
+            results["searches"].append({"method": f"Account API ({name}#{tag})", "error": str(e)})
+
+    # 尝试 summoner-v4
+    try:
+        result = riot.get_summoner_by_name(server, name)
+        results["searches"].append({
+            "method": f"summoner-v4 ({server})",
+            "success": result is not None,
+            "has_puuid": result.get("puuid") is not None if result else False,
+            "data": {k: v for k, v in (result or {}).items() if k in ("puuid", "name", "summonerLevel", "profileIconId")},
+        })
+    except Exception as e:
+        results["searches"].append({"method": "summoner-v4", "error": str(e)})
+
+    return jsonify(results)
+
+
 def get_default_tags(server: str) -> list:
     """根据服务器获取默认的 Riot ID 标签"""
     tags = {
