@@ -456,50 +456,38 @@ def api_test_tencent():
             cookies[k.strip()] = v.strip()
 
     results = {}
-    base_params = {"c":"Battle","a":"matchList","areaId":14,"accountId":"16241692751","queueId":"400,420,430,440,450","r1":"matchList"}
-
     # 从Cookie提取用户信息
     tgp_id = cookies.get("tgp_id","")
     p_uin = cookies.get("p_uin","").lstrip("o")
-    account_id_qq = p_uin  # QQ号
 
-    # 方法0: 不加accountId（自动查自己，艾欧尼亚）
-    for aid in [1,14,2,3,7]:
+    # 要尝试的accountId列表
+    try_ids = {
+        "无accountId(自动)": None,
+        "QQ号_"+p_uin: p_uin,
+        "tgp_id_"+tgp_id: tgp_id,
+        "已知blowjob_16241692751": "16241692751",
+    }
+
+    # 要尝试的大区
+    areas = [1, 7, 14, 2, 3]
+
+    for label, aid in try_ids.items():
+        for area in areas:
+            params = {"c":"Battle","a":"matchList","areaId":area,"queueId":"400,420,430,440,450","r1":"matchList"}
+            if aid: params["accountId"] = aid
+            try:
+                r = requests.get(LOL_API_URL, params=params, cookies=cookies, timeout=10)
+                body = r.text[:200]
+                results[f"{label}_大区{area}"] = {"status":r.status_code,"body":body[:150]}
+            except Exception as e:
+                results[f"{label}_大区{area}"] = {"error":str(e)[:60]}
+
+    # 额外试POST方式
+    if p_uin:
         try:
-            r = requests.get(LOL_API_URL, params={"c":"Battle","a":"matchList","areaId":aid,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
-            if r.text and "Error" not in r.text[:100] and "未登录" not in r.text[:100]:
-                results[f"无accountId_大区{aid}"] = {"status":r.status_code,"body":r.text[:300]}
+            r = requests.post(LOL_API_URL, data={"c":"Battle","a":"matchList","areaId":1,"accountId":p_uin,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
+            results[f"POST_QQ号"] = {"status":r.status_code,"body":r.text[:150]}
         except: pass
-
-    # 方法00: 用QQ号当accountId
-    if account_id_qq:
-        for aid in [1,14]:
-            try:
-                r = requests.get(LOL_API_URL, params={"c":"Battle","a":"matchList","areaId":aid,"accountId":account_id_qq,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
-                results[f"QQ号_大区{aid}"] = {"status":r.status_code,"body":r.text[:300]}
-            except: pass
-
-    # 方法000: 用tgp_id当accountId
-    if tgp_id:
-        for aid in [1,14]:
-            try:
-                r = requests.get(LOL_API_URL, params={"c":"Battle","a":"matchList","areaId":aid,"accountId":tgp_id,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
-                results[f"tgp_id_大区{aid}"] = {"status":r.status_code,"body":r.text[:300]}
-            except: pass
-
-    # 方法1: Cookie方式(已知blowjob)
-    try:
-        r = requests.get(LOL_API_URL, params=base_params, cookies=cookies, timeout=10)
-        results["已知accountId_祖安"] = {"status":r.status_code,"body":r.text[:300]}
-    except Exception as e:
-        results["已知accountId_祖安"] = {"error":str(e)[:100]}
-
-    # 方法5: POST方式
-    try:
-        r = requests.post(LOL_API_URL, data={"c":"Battle","a":"matchList","areaId":1,"accountId":account_id_qq,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
-        if r.status_code == 200:
-            results[f"POST方式_QQ号"] = {"status":r.status_code,"body":r.text[:300]}
-    except: pass
 
     return jsonify(results)
 
