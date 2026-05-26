@@ -492,6 +492,52 @@ def api_test_tencent():
     return jsonify(results)
 
 
+@app.route("/api/extract-account")
+def api_extract_account():
+    """从 lol.qq.com 页面提取用户账号信息"""
+    cookie_str = request.args.get("cookie","")
+    if not cookie_str:
+        return jsonify({"error":"需要Cookie"})
+
+    cookies = {}
+    for i in cookie_str.split(";"):
+        if "=" in i:
+            k,v = i.split("=",1)
+            cookies[k.strip()] = v.strip()
+
+    results = {}
+
+    # 1. 请求 lol.qq.com 首页（登录状态）
+    try:
+        r = requests.get("https://lol.qq.com", cookies=cookies, timeout=10, headers={"User-Agent":"Mozilla/5.0"})
+        import re
+        # 搜索页面中的 accountId
+        ids = re.findall(r'accountId["\':]+\s*(\d+)', r.text)
+        puuids = re.findall(r'puuid["\':]+\s*"([^"]+)"', r.text)
+        roleids = re.findall(r'roleid["\':]+\s*(\d+)', r.text)
+        results["lolqq_page"] = {
+            "status": r.status_code,
+            "len": len(r.text),
+            "accountIds_found": ids[:5],
+            "puuids_found": puuids[:3],
+            "roleids_found": roleids[:5],
+        }
+    except Exception as e:
+        results["lolqq_page"] = {"error": str(e)[:100]}
+
+    # 2. 用QQ access_token 获取用户信息
+    at = cookies.get("access_token","")
+    oid = cookies.get("openid","")
+    if at:
+        try:
+            r = requests.get(f"https://graph.qq.com/user/get_user_info?access_token={at}&oauth_consumer_key=101491592&openid={oid}", timeout=10)
+            results["qq_userinfo"] = {"status":r.status_code,"body":r.text[:300]}
+        except Exception as e:
+            results["qq_userinfo"] = {"error":str(e)[:100]}
+
+    return jsonify(results)
+
+
 @app.route("/api/debug-search")
 def api_debug_search():
     """调试搜索 - 返回所有搜索方式的原始结果"""
