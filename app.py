@@ -366,6 +366,26 @@ def proxy_image(img_path):
     return "", 204
 
 
+@app.route("/api/debug-cdn")
+def api_debug_cdn():
+    """测试 CDN 能否从服务器访问"""
+    import requests as req
+    results = {}
+    test_urls = [
+        "https://game.gtimg.cn/images/lol/act/img/profileicon/1.png",
+        "https://ddragon.leagueoflegends.com/cdn/14.20.1/img/profileicon/1.png",
+        "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/266.png",
+        "https://game.gtimg.cn/images/lol/act/img/champion/266.png",
+    ]
+    for url in test_urls:
+        try:
+            r = req.get(url, timeout=5)
+            results[url] = {"status": r.status_code, "len": len(r.content)}
+        except Exception as e:
+            results[url] = {"error": str(e)[:60]}
+    return jsonify(results)
+
+
 @app.route("/api/debug-search")
 def api_debug_search():
     """调试搜索 - 返回所有搜索方式的原始结果"""

@@ -12,8 +12,7 @@ let currentState = {
     matchCache: {},
 };
 
-// CDN 图片 - 使用服务器代理加载（自动尝试多个CDN源）
-// 国内用户：Render服务器 -> 腾讯CDN -> 拳头CDN
+// 所有图片通过服务器代理加载（自动尝试多个CDN源，国内可访问）
 const CDN = '/img';
 
 // ============== DOM 引用 ==============
@@ -501,9 +500,15 @@ window.addEventListener('hashchange', checkHashSearch);
 // 启动时检查
 document.addEventListener('DOMContentLoaded', checkHashSearch);
 
-// 图片加载失败时隐藏（避免破损图标）
+// 图片加载失败时尝试备用CDN
 document.addEventListener('error', function(e) {
-    if (e.target.tagName === 'IMG') {
-        e.target.style.display = 'none';
+    const img = e.target;
+    if (img.tagName !== 'IMG' || img.dataset.retried) return;
+    img.dataset.retried = '1';
+    // 如果代理加载失败，直接尝试腾讯CDN
+    if (img.src.startsWith('/img/')) {
+        const path = img.src.replace('/img/', '');
+        img.src = `https://game.gtimg.cn/images/lol/act/img/${path}`;
+        img.onerror = function() { /* 再失败就算了 */ };
     }
 }, true);
