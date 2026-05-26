@@ -329,24 +329,40 @@ def api_champions():
 
 # ========== 图片代理（解决国内无法访问拳头CDN的问题）==========
 
+CDN_MIRRORS = [
+    "https://ddragon.leagueoflegends.com/cdn/14.20.1/img",
+    "https://ddragon.canisback.com/img",
+]
+
+@app.route("/img/champion-icon/<int:champion_id>.png")
+def proxy_champion_icon(champion_id):
+    """代理英雄头像（用ID加载，不依赖英文名）"""
+    urls = [
+        f"https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/{champion_id}.png",
+        f"https://ddragon.leagueoflegends.com/cdn/14.20.1/img/champion/{champion_id}.png",
+    ]
+    for url in urls:
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                return resp.content, 200, {"Content-Type": "image/png"}
+        except Exception:
+            continue
+    return "", 204
+
 @app.route("/img/<path:img_path>")
 def proxy_image(img_path):
-    """代理拳头 CDN 图片"""
-    img_url = f"https://ddragon.leagueoflegends.com/cdn/14.20.1/img/{img_path}"
-    try:
-        resp = requests.get(img_url, timeout=10, stream=True)
-        if resp.status_code == 200:
-            return resp.content, 200, {"Content-Type": resp.headers.get("Content-Type", "image/png")}
-    except Exception:
-        pass
-    # 尝试备用 CDN
-    try:
-        resp = requests.get(f"https://ddragon.canisback.com/img/{img_path}", timeout=10, stream=True)
-        if resp.status_code == 200:
-            return resp.content, 200, {"Content-Type": resp.headers.get("Content-Type", "image/png")}
-    except Exception:
-        pass
-    return "", 404
+    """代理 CDN 图片（头像、物品等）"""
+    # 处理物品图标
+    if img_path.startswith("item/") or img_path.startswith("profileicon/"):
+        for mirror in CDN_MIRRORS:
+            try:
+                resp = requests.get(f"{mirror}/{img_path}", timeout=10)
+                if resp.status_code == 200:
+                    return resp.content, 200, {"Content-Type": resp.headers.get("Content-Type", "image/png")}
+            except Exception:
+                continue
+    return "", 204
 
 
 @app.route("/api/debug-search")

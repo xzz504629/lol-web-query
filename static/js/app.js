@@ -189,7 +189,7 @@ function renderMastery(mastery) {
     DOM.masteryBar.style.display = 'flex';
     DOM.masteryList.innerHTML = mastery.map(m => `
         <div class="mastery-champ">
-            <img src="${DD_BASE}/champion/${m.champion_name}.png"
+            <img src="/img/champion-icon/${m.champion_id || m.champion_name}.png"
                  onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2265%22 text-anchor=%22middle%22 fill=%22%23666%22 font-size=%2230%22>${m.champion_name[0]}</text></svg>'"
                  alt="${m.champion_name}">
             <span class="mastery-champ-name">${m.champion_name}</span>
@@ -248,7 +248,7 @@ function renderMatches(games) {
                 <div class="match-col-champ">
                     <div class="champ-icon-wrap">
                         <img class="champ-icon"
-                             src="${DD_BASE}/champion/${g.champion_name}.png"
+                             src="/img/champion-icon/${g.champion_id}.png"
                              onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2260%22 text-anchor=%22middle%22 fill=%22%23666%22 font-size=%2228%22>?</text></svg>'"
                              alt="">
                         <span class="champ-level">${g.champ_level}</span>
@@ -391,7 +391,7 @@ function renderMatchDetail(data) {
                 <tr class="${isTarget ? 'highlight' : ''}">
                     <td>
                         <div class="detail-champ">
-                            <img src="${DD_BASE}/champion/${p.champion_name}.png"
+                            <img src="/img/champion-icon/${p.champion_id}.png"
                                  onerror="this.style.display='none'">
                             <span class="detail-champ-level">${p.champ_level || '-'}</span>
                         </div>
