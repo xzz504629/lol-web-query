@@ -386,6 +386,31 @@ def api_debug_cdn():
     return jsonify(results)
 
 
+@app.route("/api/test-cn-match")
+def api_test_cn_match():
+    """测试国服PUUID能否在asia路由查到比赛"""
+    puuid = request.args.get("puuid", "677f3d6f-4d8b-56ec-a86f-b4de0945f1eb")
+    results = {"puuid": puuid, "tests": []}
+
+    # 尝试 Match V5 Asia 路由
+    for routing in ["asia", "sea", "americas", "europe"]:
+        try:
+            ids = riot.get_match_ids(routing, puuid, count=5)
+            results["tests"].append({
+                "routing": routing,
+                "success": ids is not None,
+                "match_count": len(ids) if ids else 0,
+                "first_match": ids[0] if ids else None,
+            })
+        except Exception as e:
+            results["tests"].append({
+                "routing": routing,
+                "error": str(e)[:50],
+            })
+
+    return jsonify(results)
+
+
 @app.route("/api/debug-search")
 def api_debug_search():
     """调试搜索 - 返回所有搜索方式的原始结果"""
