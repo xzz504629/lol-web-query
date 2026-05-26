@@ -5,6 +5,7 @@
 
 import os
 import logging
+import requests
 from functools import lru_cache
 
 from flask import Flask, render_template, request, jsonify, abort
