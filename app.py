@@ -458,54 +458,48 @@ def api_test_tencent():
     results = {}
     base_params = {"c":"Battle","a":"matchList","areaId":14,"accountId":"16241692751","queueId":"400,420,430,440,450","r1":"matchList"}
 
-    # 方法1: Cookie方式
+    # 从Cookie提取用户信息
+    tgp_id = cookies.get("tgp_id","")
+    p_uin = cookies.get("p_uin","").lstrip("o")
+    account_id_qq = p_uin  # QQ号
+
+    # 方法0: 不加accountId（自动查自己，艾欧尼亚）
+    for aid in [1,14,2,3,7]:
+        try:
+            r = requests.get(LOL_API_URL, params={"c":"Battle","a":"matchList","areaId":aid,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
+            if r.text and "Error" not in r.text[:100] and "未登录" not in r.text[:100]:
+                results[f"无accountId_大区{aid}"] = {"status":r.status_code,"body":r.text[:300]}
+        except: pass
+
+    # 方法00: 用QQ号当accountId
+    if account_id_qq:
+        for aid in [1,14]:
+            try:
+                r = requests.get(LOL_API_URL, params={"c":"Battle","a":"matchList","areaId":aid,"accountId":account_id_qq,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
+                results[f"QQ号_大区{aid}"] = {"status":r.status_code,"body":r.text[:300]}
+            except: pass
+
+    # 方法000: 用tgp_id当accountId
+    if tgp_id:
+        for aid in [1,14]:
+            try:
+                r = requests.get(LOL_API_URL, params={"c":"Battle","a":"matchList","areaId":aid,"accountId":tgp_id,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
+                results[f"tgp_id_大区{aid}"] = {"status":r.status_code,"body":r.text[:300]}
+            except: pass
+
+    # 方法1: Cookie方式(已知blowjob)
     try:
         r = requests.get(LOL_API_URL, params=base_params, cookies=cookies, timeout=10)
-        results["cookie_方式"] = {"status":r.status_code,"body":r.text[:300]}
+        results["已知accountId_祖安"] = {"status":r.status_code,"body":r.text[:300]}
     except Exception as e:
-        results["cookie_方式"] = {"error":str(e)[:100]}
+        results["已知accountId_祖安"] = {"error":str(e)[:100]}
 
-    # 方法2: access_token/openid作为参数
-    at = cookies.get("access_token","")
-    oid = cookies.get("openid","")
-    if at:
-        p2 = dict(base_params)
-        p2.update({"access_token":at,"openid":oid,"appid":"101491592","acctype":"qc"})
-        try:
-            r = requests.get(LOL_API_URL, params=p2, timeout=10)
-            results["参数_access_token"] = {"status":r.status_code,"body":r.text[:300]}
-        except Exception as e:
-            results["参数_access_token"] = {"error":str(e)[:100]}
-
-    # 方法3: 只传openid和acctype
-    if oid:
-        p3 = dict(base_params)
-        p3.update({"openid":oid,"acctype":"qc"})
-        try:
-            r = requests.get(LOL_API_URL, params=p3, timeout=10)
-            results["参数_openid"] = {"status":r.status_code,"body":r.text[:300]}
-        except Exception as e:
-            results["参数_openid"] = {"error":str(e)[:100]}
-
-    # 方法4: 用p_uin和p_skey
-    puin = cookies.get("p_uin","")
-    pkey = cookies.get("p_skey","")
-    if puin and pkey:
-        c2 = {"p_uin":puin,"p_skey":pkey}
-        try:
-            r = requests.get(LOL_API_URL, params=base_params, cookies=c2, timeout=10)
-            results["p_uin+p_skey"] = {"status":r.status_code,"body":r.text[:300]}
-        except Exception as e:
-            results["p_uin+p_skey"] = {"error":str(e)[:100]}
-
-    # 方法5: WeGame API
-    if at and oid:
-        try:
-            h = {"Authorization":f"Bearer {at}"}
-            r = requests.get(f"https://api.wegame.qq.com/trpc/wegame-match/lol/match_list?area_id=14&account_id=16241692751", headers=h, timeout=10)
-            results["wegame_api"] = {"status":r.status_code,"body":r.text[:300]}
-        except Exception as e:
-            results["wegame_api"] = {"error":str(e)[:100]}
+    # 方法5: POST方式
+    try:
+        r = requests.post(LOL_API_URL, data={"c":"Battle","a":"matchList","areaId":1,"accountId":account_id_qq,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
+        if r.status_code == 200:
+            results[f"POST方式_QQ号"] = {"status":r.status_code,"body":r.text[:300]}
+    except: pass
 
     return jsonify(results)
 
