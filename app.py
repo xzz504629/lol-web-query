@@ -456,40 +456,93 @@ def api_test_tencent():
             cookies[k.strip()] = v.strip()
 
     results = {}
-    # 从Cookie提取用户信息
     tgp_id = cookies.get("tgp_id","")
     p_uin = cookies.get("p_uin","").lstrip("o")
 
-    # 要尝试的accountId列表
-    try_ids = {
-        "无accountId(自动)": None,
-        "QQ号_"+p_uin: p_uin,
-        "tgp_id_"+tgp_id: tgp_id,
-        "已知blowjob_16241692751": "16241692751",
-    }
+    # 模拟浏览器头
+    headers = {"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36","Origin":"https://lol.qq.com","Referer":"https://lol.qq.com/"}
 
-    # 要尝试的大区
-    areas = [1, 7, 14, 2, 3]
-
-    for label, aid in try_ids.items():
-        for area in areas:
-            params = {"c":"Battle","a":"matchList","areaId":area,"queueId":"400,420,430,440,450","r1":"matchList"}
-            if aid: params["accountId"] = aid
+    # 关键测试：带浏览器头 + access_token参数
+    at = cookies.get("access_token","")
+    oid = cookies.get("openid","")
+    if at and oid:
+        for area in [1]:
+            p = {"c":"Battle","a":"matchList","areaId":area,"queueId":"400,420,430,440,450","r1":"matchList",
+                 "access_token":at,"openid":oid,"appid":"101491592","acctype":"qc"}
             try:
-                r = requests.get(LOL_API_URL, params=params, cookies=cookies, timeout=10)
-                body = r.text[:200]
-                results[f"{label}_大区{area}"] = {"status":r.status_code,"body":body[:150]}
-            except Exception as e:
-                results[f"{label}_大区{area}"] = {"error":str(e)[:60]}
+                r = requests.get(LOL_API_URL, params=p, headers=headers, timeout=10)
+                results[f"Token参数+浏览器头_大区{area}"] = {"status":r.status_code,"body":r.text[:200]}
+            except: pass
 
-    # 额外试POST方式
-    if p_uin:
-        try:
-            r = requests.post(LOL_API_URL, data={"c":"Battle","a":"matchList","areaId":1,"accountId":p_uin,"queueId":"400,420,430,440,450","r1":"matchList"}, cookies=cookies, timeout=10)
-            results[f"POST_QQ号"] = {"status":r.status_code,"body":r.text[:150]}
-        except: pass
+    # 加浏览器头的Cookie方式
+    for aid_name, aid_val in {"无":None,"QQ_"+p_uin:p_uin,"tgp_"+tgp_id:tgp_id}.items():
+        for area in [1,14]:
+            p = {"c":"Battle","a":"matchList","areaId":area,"queueId":"400,420,430,440,450","r1":"matchList"}
+            if aid_val: p["accountId"] = aid_val
+            try:
+                r = requests.get(LOL_API_URL, params=p, cookies=cookies, headers=headers, timeout=10)
+                results[f"Cookie_{aid_name}_大区{area}"] = {"status":r.status_code,"body":r.text[:150]}
+            except: pass
 
     return jsonify(results)
+
+
+@app.route("/api/sweep-tencent")
+def api_sweep_tencent():
+    """地毯式扫描所有可能的腾讯API"""
+    cookie_str = request.args.get("cookie","")
+    if not cookie_str:
+        return """<h2>腾讯API地毯式扫描</h2>
+<form method=get action=/api/sweep-tencent>
+<textarea name=cookie rows=5 cols=80 placeholder='粘贴lol.qq.com的Cookie'></textarea><br>
+<button type=submit>开始扫描</button></form>"""
+
+    cookies = {}
+    for i in cookie_str.split(";"):
+        if "=" in i:
+            k,v=i.split("=",1); cookies[k.strip()]=v.strip()
+
+    import time
+    results = {}
+
+    # 所有可能的API域名
+    domains = [
+        "http://lol.sw.game.qq.com/lol/api/",
+        "https://lol.qq.com/api/",
+        "https://game.gtimg.cn/lol/api/",
+        "https://api.wegame.qq.com/trpc/wegame-match/lol/",
+        "https://apps.game.qq.com/lol/",
+        "https://lolapi.game.qq.com/",
+    ]
+
+    # 所有可能的接口路径
+    paths = ["match_list", "matchList", "getMatchList", "battle/matchList", "Battle/matchList"]
+    # 所有可能的参数组合
+    param_sets = [
+        {"accountId":"16241692751","areaId":"14"},
+        {"accountId":"","areaId":"1"},
+        {"puuid":"677f3d6f-4d8b-56ec-a86f-b4de0945f1eb","areaId":"14"},
+        {"summonerName":"blowjob#89795","environment":"NJ100"},
+    ]
+
+    for domain in domains:
+        for path in paths:
+            for ps in param_sets:
+                url = domain.rstrip("/") + "/" + path
+                try:
+                    r = requests.get(url, params=ps, cookies=cookies, timeout=5)
+                    body = r.text[:100]
+                    if "Error" not in body and "未登录" not in body and len(body) > 10 and "html" not in body[:10].lower():
+                        results[f"{domain[:30]}...{path}"] = {"status":r.status_code,"body":body}
+                except:
+                    continue
+
+    # 如果没有找到，显示所有请求的统计
+    return jsonify({
+        "found_apis": results,
+        "total_tried": len(domains)*len(paths)*len(param_sets),
+        "note": "以上是返回了非Error/未登录/HTML的接口"
+    })
 
 
 @app.route("/api/extract-account")
