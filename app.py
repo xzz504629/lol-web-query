@@ -327,17 +327,19 @@ def api_champions():
     return jsonify(riot._champion_map)
 
 
-# ========== 图片代理（解决国内无法访问拳头CDN的问题）==========
+# ========== 图片代理（国内用户可直接访问腾讯CDN，不用代理）==========
 
 CDN_MIRRORS = [
+    "https://game.gtimg.cn/images/lol/act/img",  # 腾讯CDN - 国内可访问
     "https://ddragon.leagueoflegends.com/cdn/14.20.1/img",
     "https://ddragon.canisback.com/img",
 ]
 
 @app.route("/img/champion-icon/<int:champion_id>.png")
 def proxy_champion_icon(champion_id):
-    """代理英雄头像（用ID加载，不依赖英文名）"""
+    """代理英雄头像（尝试多个CDN）"""
     urls = [
+        f"https://game.gtimg.cn/images/lol/act/img/champion/{champion_id}.png",
         f"https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/{champion_id}.png",
         f"https://ddragon.leagueoflegends.com/cdn/14.20.1/img/champion/{champion_id}.png",
     ]
@@ -352,8 +354,7 @@ def proxy_champion_icon(champion_id):
 
 @app.route("/img/<path:img_path>")
 def proxy_image(img_path):
-    """代理 CDN 图片（头像、物品等）"""
-    # 处理物品图标
+    """代理 CDN 图片"""
     if img_path.startswith("item/") or img_path.startswith("profileicon/"):
         for mirror in CDN_MIRRORS:
             try:

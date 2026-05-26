@@ -12,8 +12,9 @@ let currentState = {
     matchCache: {},
 };
 
-// Riot API -> CDN 图片基准 URL
-const DD_BASE = '/img';
+// CDN 图片 - 使用服务器代理加载（自动尝试多个CDN源）
+// 国内用户：Render服务器 -> 腾讯CDN -> 拳头CDN
+const CDN = '/img';
 
 // ============== DOM 引用 ==============
 const $ = (id) => document.getElementById(id);
@@ -70,7 +71,7 @@ const TIER_ORDER = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM',
 function getTierEmblem(tier) {
     if (!tier) return '';
     const t = tier.toLowerCase();
-    return `${DD_BASE}/profileicon/${t === 'grandmaster' ? 'grandmaster' : t}.png`;
+    return `${CDN}/profileicon/${t === 'grandmaster' ? 'grandmaster' : t}.png`;
     // 使用 profileicon 作为 fallback，实际上段位图标需要特殊处理
 }
 
@@ -137,7 +138,7 @@ async function searchSummoner(name, server) {
 function renderSummoner(summoner, ranked) {
     DOM.profileName.textContent = summoner.name;
     DOM.profileLevel.textContent = summoner.summoner_level || '-';
-    DOM.profileIcon.src = `${DD_BASE}/profileicon/${summoner.profile_icon_id || 1}.png`;
+    DOM.profileIcon.src = `${CDN}/profileicon/${summoner.profile_icon_id || 1}.png`;
     DOM.profileServer.textContent = DOM.navRegion.textContent;
 
     // 段位
@@ -172,9 +173,9 @@ function renderRank(type, data) {
 
     // 段位徽章
     const tierLower = tier.toLowerCase();
-    emblemEl.src = `${DD_BASE}/profileicon/${tierLower}.png`;
+    emblemEl.src = `${CDN}/profileicon/${tierLower}.png`;
     emblemEl.onerror = function() {
-        this.src = `${DD_BASE}/profileicon/1.png`;
+        this.src = `${CDN}/profileicon/1.png`;
         this.style.opacity = '0.3';
     };
 }
@@ -189,7 +190,7 @@ function renderMastery(mastery) {
     DOM.masteryBar.style.display = 'flex';
     DOM.masteryList.innerHTML = mastery.map(m => `
         <div class="mastery-champ">
-            <img src="/img/champion-icon/${m.champion_id || m.champion_name}.png"
+            <img src="${CDN}/champion-icon/${m.champion_id || m.champion_name}.png"
                  onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2265%22 text-anchor=%22middle%22 fill=%22%23666%22 font-size=%2230%22>${m.champion_name[0]}</text></svg>'"
                  alt="${m.champion_name}">
             <span class="mastery-champ-name">${m.champion_name}</span>
@@ -248,7 +249,7 @@ function renderMatches(games) {
                 <div class="match-col-champ">
                     <div class="champ-icon-wrap">
                         <img class="champ-icon"
-                             src="/img/champion-icon/${g.champion_id}.png"
+                             src="${CDN}/champion-icon/${g.champion_id}.png"
                              onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2260%22 text-anchor=%22middle%22 fill=%22%23666%22 font-size=%2228%22>?</text></svg>'"
                              alt="">
                         <span class="champ-level">${g.champ_level}</span>
@@ -268,7 +269,7 @@ function renderMatches(games) {
                     <div class="items-row">
                         ${g.items.map(id =>
                             id > 0
-                                ? `<img class="match-item-icon" src="${DD_BASE}/item/${id}.png"
+                                ? `<img class="match-item-icon" src="${CDN}/item/${id}.png"
                                         onerror="this.style.display='none'">`
                                 : '<span class="item-empty"></span>'
                         ).join('')}
@@ -391,7 +392,7 @@ function renderMatchDetail(data) {
                 <tr class="${isTarget ? 'highlight' : ''}">
                     <td>
                         <div class="detail-champ">
-                            <img src="/img/champion-icon/${p.champion_id}.png"
+                            <img src="${CDN}/champion-icon/${p.champion_id}.png"
                                  onerror="this.style.display='none'">
                             <span class="detail-champ-level">${p.champ_level || '-'}</span>
                         </div>
@@ -408,7 +409,7 @@ function renderMatchDetail(data) {
                         <div class="detail-items">
                             ${p.items.map(id =>
                                 id > 0
-                                    ? `<img class="match-item-icon" src="${DD_BASE}/item/${id}.png"
+                                    ? `<img class="match-item-icon" src="${CDN}/item/${id}.png"
                                             onerror="this.style.display='none'">`
                                     : '<span class="item-empty"></span>'
                             ).join('')}
@@ -499,3 +500,10 @@ window.addEventListener('hashchange', checkHashSearch);
 
 // 启动时检查
 document.addEventListener('DOMContentLoaded', checkHashSearch);
+
+// 图片加载失败时隐藏（避免破损图标）
+document.addEventListener('error', function(e) {
+    if (e.target.tagName === 'IMG') {
+        e.target.style.display = 'none';
+    }
+}, true);
