@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoLStats - 英雄联盟战绩查询</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ========== 顶部导航 ========== -->
+<nav class="navbar">
+    <div class="nav-inner">
+        <a href="/" class="nav-logo">
+            <span class="logo-icon">◈</span>
+            <span class="logo-text">LoLStats</span>
+        </a>
+        <div class="nav-right">
+            <span class="nav-region-badge" id="navRegion">韩服</span>
+            <a href="https://developer.riotgames.com" target="_blank" class="nav-api-link">API Key</a>
+        </div>
+    </div>
+</nav>
+
+<!-- ========== 主容器 ========== -->
+<main class="container">
+
+    <!-- 英雄背景装饰 -->
+    <div class="hero-bg"></div>
+
+    <!-- ===== 首页搜索区 ===== -->
+    <section class="hero-section" id="heroSection">
+        <h1 class="hero-title">查询你的英雄联盟战绩</h1>
+        <p class="hero-desc">输入召唤师名称，查看完整的比赛数据、段位信息和英雄统计</p>
+
+        <div class="search-box">
+            <div class="search-region-select">
+                <select id="serverSelect" class="region-select">
+                    <optgroup label="🌏 国际服">
+                    {% for code, info in servers.items() if not code.startswith('cn') %}
+                    <option value="{{ code }}" {% if code == 'kr' %}selected{% endif %}>
+                        {{ info.name }}
+                    </option>
+                    {% endfor %}
+                    </optgroup>
+                    <optgroup label="🇨🇳 国服 (Riot ID)">
+                    {% for code, info in servers.items() if code.startswith('cn') %}
+                    <option value="{{ code }}" {% if code == 'kr' %}selected{% endif %}>
+                        {{ info.name }}
+                    </option>
+                    {% endfor %}
+                    </optgroup>
+                </select>
+                <span class="select-arrow">▼</span>
+            </div>
+            <input
+                type="text"
+                class="search-input"
+                id="searchInput"
+                placeholder="输入召唤师名称 或 游戏名#标签..."
+                autocomplete="off"
+                onkeydown="if(event.key==='Enter') handleSearch()"
+            />
+            <button class="search-btn" onclick="handleSearch()">
+                查询
+            </button>
+        </div>
+
+        <div class="search-examples">
+            热门: <a onclick="quickSearch('Hide on bush')">Hide on bush</a>
+            · <a onclick="quickSearch('T1 Faker')">T1 Faker</a>
+            · <a onclick="quickSearch('Chovy')">Chovy</a>
+            · <a onclick="quickSearch('blowjob#89795')" title="国服示例">🇨🇳 blowjob#89795</a>
+        </div>
+
+        <div class="server-note">
+            💡 国服玩家请切换上方为国服分区，输入 <strong>游戏名#标签</strong> 查询
+            · 国际服可直接输入召唤师名称
+        </div>
+    </section>
+
+    <!-- ===== 加载动画 ===== -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text" id="loadingText">正在查询...</div>
+        </div>
+    </div>
+
+    <!-- ===== 结果区域 ===== -->
+    <div class="results-container" id="resultsContainer" style="display:none;">
+
+        <!-- 错误 -->
+        <div class="error-box" id="errorBox">
+            <div class="error-icon">!</div>
+            <span id="errorText"></span>
+        </div>
+
+        <!-- 召唤师信息卡 -->
+        <div class="summoner-profile" id="summonerProfile">
+            <div class="profile-left">
+                <div class="profile-icon-wrap">
+                    <img id="profileIcon" src="" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23222%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2265%22 text-anchor=%22middle%22 fill=%22%23666%22 font-size=%2240%22>?</text></svg>'">
+                    <span class="profile-level" id="profileLevel">--</span>
+                </div>
+                <div class="profile-info">
+                    <h2 class="profile-name" id="profileName">---</h2>
+                    <div class="profile-tags">
+                        <span class="tag tag-server" id="profileServer">韩服</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="profile-rank" id="rankSolo">
+                <div class="rank-label">单排 / 双排</div>
+                <div class="rank-tier-row">
+                    <img class="rank-emblem" id="soloEmblem" src="" alt="">
+                    <div class="rank-detail">
+                        <div class="rank-tier" id="soloTier">Unranked</div>
+                        <div class="rank-stats" id="soloStats">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="profile-rank" id="rankFlex">
+                <div class="rank-label">灵活排位</div>
+                <div class="rank-tier-row">
+                    <img class="rank-emblem" id="flexEmblem" src="" alt="">
+                    <div class="rank-detail">
+                        <div class="rank-tier" id="flexTier">Unranked</div>
+                        <div class="rank-stats" id="flexStats">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 英雄熟练度 -->
+        <div class="mastery-bar" id="masteryBar">
+            <div class="mastery-title">英雄熟练度</div>
+            <div class="mastery-list" id="masteryList"></div>
+        </div>
+
+        <!-- 统计概览 -->
+        <div class="stats-summary" id="statsSummary">
+            <div class="stat-item">
+                <span class="stat-value" id="statGames">0</span>
+                <span class="stat-label">总场次</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="statWins">0</span>
+                <span class="stat-label">胜场</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="statWinRate">0%</span>
+                <span class="stat-label">胜率</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="statKda">0.0</span>
+                <span class="stat-label">平均 KDA</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="statVision">0</span>
+                <span class="stat-label">场均视野</span>
+            </div>
+            <div class="stat-item recent-results" id="recentResults">
+                <span class="stat-label">最近</span>
+            </div>
+        </div>
+
+        <!-- 比赛列表 -->
+        <div class="matches-section">
+            <div class="matches-header">
+                <h3>比赛记录</h3>
+                <span class="matches-count" id="matchesCount"></span>
+            </div>
+            <div id="matchList"></div>
+        </div>
+    </div>
+
+    <!-- ===== 比赛详情弹窗 ===== -->
+    <div class="modal-overlay" id="matchModal" onclick="closeModal(event)">
+        <div class="modal-panel" onclick="event.stopPropagation()">
+            <div class="modal-topbar">
+                <div class="modal-title">
+                    <span id="modalQueueName">比赛详情</span>
+                    <span class="modal-duration" id="modalDuration"></span>
+                </div>
+                <button class="modal-close-btn" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <div class="modal-loading">
+                    <div class="spinner-sm"></div>
+                    <span>加载中...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<!-- ========== Footer ========== -->
+<footer class="footer">
+    <div class="footer-inner">
+        <p>LoLStats · 基于 Riot Games API · 非官方 · 仅供学习参考</p>
+        <p class="footer-small">
+            数据来源: Riot Games Developer API ·
+            <a href="https://developer.riotgames.com" target="_blank">获取 API Key</a> ·
+            <a href="https://github.com" target="_blank">GitHub</a>
+        </p>
+    </div>
+</footer>
+
+<script src="/static/js/app.js"></script>
+<script>
+// 传递服务器数据给前端
+window.SERVERS = {{ servers | tojson | safe }};
+</script>
+
+</body>
+</html>

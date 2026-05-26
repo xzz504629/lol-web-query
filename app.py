@@ -1,0 +1,352 @@
+"""
+英雄联盟战绩查询 Web 应用
+基于 Riot Games API，可部署到云端
+"""
+
+import os
+import logging
+from functools import lru_cache
+
+from flask import Flask, render_template, request, jsonify, abort
+from riot import (
+    RiotClient, SERVERS, QUEUE_NAMES, get_region_for_platform,
+    parse_ranked_data, format_duration, format_time_ago,
+)
+
+# 日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+# 从环境变量读取 API Key
+API_KEY = os.environ.get("RIOT_API_KEY", "RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+
+# 全局客户端
+riot = RiotClient(API_KEY)
+
+
+# ========== 页面路由 ==========
+
+@app.route("/")
+def index():
+    """首页"""
+    return render_template(
+        "index.html",
+        servers=SERVERS,
+    )
+
+
+@app.route("/profile")
+def profile_page():
+    """召唤师资料页"""
+    return render_template(
+        "profile.html",
+        servers=SERVERS,
+    )
+
+
+# ========== API 路由 ==========
+
+@app.route("/api/servers")
+def api_servers():
+    """获取服务器列表"""
+    return jsonify({
+        code: info["name"] for code, info in SERVERS.items()
+    })
+
+
+@app.route("/api/search")
+def api_search():
+    """
+    搜索召唤师
+    支持格式:
+      - 召唤师名称 (仅非国服)
+      - 游戏名#标签 (Riot ID, 全服通用)
+    """
+    name = request.args.get("name", "").strip()
+    server = request.args.get("server", "kr")
+
+    if not name:
+        return jsonify({"error": "请输入召唤师名称"}), 400
+
+    if server not in SERVERS:
+        return jsonify({"error": "无效的服务器"}), 400
+
+    server_info = SERVERS[server]
+    routing = server_info["routing"]
+    is_cn = server.startswith("cn")
+
+    try:
+        summoner = None
+
+        # 解析 Riot ID 格式: gameName#tagLine
+        if "#" in name:
+            parts = name.split("#", 1)
+            game_name = parts[0].strip()
+            tag_line = parts[1].strip()
+
+            # 通过 Account API 查询（全服通用）
+            account = riot.get_account_by_riot_id(routing, game_name, tag_line)
+            if account and account.get("puuid"):
+                puuid = account["puuid"]
+                logger.info(f"✅ Account API 查到了: {account.get('gameName')}#{account.get('tagLine')} puuid={puuid[:8]}...")
+
+                # 国服: 不用 summoner-v4（国服没有这个API），直接用 account 信息
+                summoner = {
+                    "name": account.get("gameName", game_name),
+                    "puuid": puuid,
+                    "summonerLevel": 0,
+                    "profileIconId": 0,
+                    "id": puuid,
+                    "accountId": "",
+                    "gameName": account.get("gameName", game_name),
+                    "tagLine": account.get("tagLine", tag_line),
+                }
+
+            if not summoner:
+                return jsonify({
+                    "error": f"未找到国服召唤师「{name}」，请确认 Riot ID 是否正确",
+                    "code": "NOT_FOUND",
+                }), 404
+        else:
+            # 纯名称搜索
+            if is_cn:
+                # 国服必须用 Riot ID 格式
+                return jsonify({
+                    "error": "国服请使用 游戏名#标签 格式查询（例如: blowjob#89795）",
+                    "code": "NEED_RIOT_ID",
+                }), 400
+            else:
+                # 非国服: 用 summoner-v4 API
+                summoner = riot.get_summoner_by_name(server, name)
+                if not summoner:
+                    return jsonify({
+                        "error": f"在{server_info['name']}未找到召唤师「{name}」",
+                        "code": "NOT_FOUND",
+                    }), 404
+
+        puuid = summoner.get("puuid", "")
+        summoner_id = summoner.get("id", "")
+
+        # 获取排位数据（仅非国服）
+        ranked = []
+        if not is_cn and summoner_id:
+            try:
+                ranked = riot.get_ranked_entries(server, summoner_id) or []
+            except Exception:
+                pass
+
+        # 获取英雄熟练度（仅非国服）
+        mastery = []
+        if not is_cn and summoner_id:
+            try:
+                mastery = riot.get_champion_mastery(server, summoner_id, 5) or []
+            except Exception:
+                pass
+
+        return jsonify({
+            "summoner": {
+                "name": summoner.get("name", ""),
+                "summoner_level": summoner.get("summonerLevel", 0),
+                "profile_icon_id": summoner.get("profileIconId", 0),
+                "puuid": puuid,
+                "id": summoner_id,
+                "account_id": summoner.get("accountId", ""),
+                "game_name": summoner.get("gameName", ""),
+                "tag_line": summoner.get("tagLine", ""),
+            },
+            "ranked": parse_ranked_data(ranked),
+            "mastery": [
+                {
+                    "champion_id": m.get("championId", 0),
+                    "champion_name": riot.get_champion_name(m.get("championId", 0)),
+                    "champion_level": m.get("championLevel", 0),
+                    "champion_points": m.get("championPoints", 0),
+                }
+                for m in (mastery or [])
+            ],
+            "server": server,
+            "server_name": server_info["name"],
+            "is_cn": is_cn,
+        })
+    except Exception as e:
+        logger.exception("搜索召唤师失败")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/matches")
+def api_matches():
+    """获取比赛历史"""
+    puuid = request.args.get("puuid", "")
+    server = request.args.get("server", "kr")
+    count = request.args.get("count", 15, type=int)
+
+    if not puuid or server not in SERVERS:
+        return jsonify({"error": "参数无效"}), 400
+
+    try:
+        routing = get_region_for_platform(server)
+        match_ids = riot.get_match_ids(routing, puuid, count=count)
+        if not match_ids:
+            return jsonify({"games": [], "total": 0})
+
+        # 加载英雄数据（如果还没加载）
+        if not riot._champion_map:
+            riot.load_champion_data()
+
+        games = []
+        for match_id in match_ids:
+            try:
+                detail = riot.get_match_detail(routing, match_id)
+                if detail:
+                    match_info = riot.parse_match_info(detail)
+                    if match_info:
+                        summary = riot.format_game_summary(match_info, puuid)
+                        if summary:
+                            summary["time_ago"] = format_time_ago(summary["game_creation"])
+                            summary["duration"] = format_duration(summary["duration_sec"])
+                            games.append(summary)
+            except Exception as e:
+                logger.warning(f"获取比赛详情失败: {match_id}: {e}")
+                continue
+
+        return jsonify({
+            "games": games,
+            "total": len(games),
+        })
+    except Exception as e:
+        logger.exception("获取比赛历史失败")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/match/<path:match_id>/detail")
+def api_match_detail(match_id):
+    """获取比赛详情"""
+    server = request.args.get("server", "kr")
+    puuid = request.args.get("puuid", "")
+
+    if server not in SERVERS:
+        return jsonify({"error": "无效服务器"}), 400
+
+    try:
+        routing = get_region_for_platform(server)
+        detail = riot.get_match_detail(routing, match_id)
+
+        if not detail:
+            return jsonify({"error": "比赛数据未找到"}), 404
+
+        match_info = riot.parse_match_info(detail)
+        if not match_info:
+            return jsonify({"error": "解析失败"}), 500
+
+        participants = match_info.get("participants", [])
+        teams = match_info.get("teams", [])
+
+        # 玩家列表
+        player_list = []
+        for p in participants:
+            player_list.append({
+                "puuid": p.get("puuid", ""),
+                "summoner_name": p.get("summonerName", ""),
+                "champion_id": p.get("championId", 0),
+                "champion_name": riot.get_champion_name(p.get("championId", 0)),
+                "team_id": p.get("teamId", 0),
+                "kills": p.get("kills", 0),
+                "deaths": p.get("deaths", 0),
+                "assists": p.get("assists", 0),
+                "kda": f"{p.get('kills', 0)}/{p.get('deaths', 0)}/{p.get('assists', 0)}",
+                "champ_level": p.get("champLevel", 1),
+                "total_damage": p.get("totalDamageDealtToChampions", 0),
+                "total_damage_taken": p.get("totalDamageTaken", 0),
+                "gold_earned": p.get("goldEarned", 0),
+                "cs": p.get("totalMinionsKilled", 0) + p.get("neutralMinionsKilled", 0),
+                "vision_score": p.get("visionScore", 0),
+                "items": [p.get(f"item{i}", 0) for i in range(7)],
+                "win": p.get("win", False),
+                "summoner1_id": p.get("summoner1Id", 0),
+                "summoner2_id": p.get("summoner2Id", 0),
+                "perks": p.get("perks", {}),
+            })
+
+        # 队伍维度
+        team_info = {}
+        for team in teams:
+            team_info[team.get("teamId", 0)] = {
+                "win": team.get("win", False),
+                "objectives": team.get("objectives", {}),
+            }
+
+        # 为当前查询的玩家高亮
+        player_list.sort(key=lambda x: x["team_id"])
+
+        return jsonify({
+            "match_id": match_id,
+            "queue_name": QUEUE_NAMES.get(match_info.get("queue_id", 0), "未知"),
+            "duration": format_duration(match_info.get("game_duration", 0)),
+            "duration_sec": match_info.get("game_duration", 0),
+            "game_creation": match_info.get("game_creation", 0),
+            "game_version": match_info.get("game_version", ""),
+            "players": player_list,
+            "teams": team_info,
+            "target_puuid": puuid,
+        })
+    except Exception as e:
+        logger.exception("获取比赛详情失败")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/champions")
+def api_champions():
+    """获取英雄列表"""
+    return jsonify(riot._champion_map)
+
+
+# ========== 启动 ==========
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="LOL 战绩查询 Web App")
+    parser.add_argument("--port", type=int, default=5000, help="端口")
+    parser.add_argument("--host", default="0.0.0.0", help="绑定地址")
+    parser.add_argument("--debug", action="store_true", help="调试模式")
+    parser.add_argument("--api-key", help="Riot API Key（可替代环境变量 RIOT_API_KEY）")
+    args = parser.parse_args()
+
+    if args.api_key:
+        riot.api_key = args.api_key
+        riot.session.headers.update({"X-Riot-Token": args.api_key})
+
+    if riot.api_key == "RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx":
+        logger.warning("=" * 60)
+        logger.warning("未设置 RIOT_API_KEY！")
+        logger.warning("请前往 https://developer.riotgames.com 注册获取免费 API Key")
+        logger.warning("设置方式: export RIOT_API_KEY=你的Key")
+        logger.warning("或者: python app.py --api-key 你的Key")
+        logger.warning("=" * 60)
+    else:
+        # 尝试加载英雄数据
+        try:
+            riot.load_champion_data()
+        except Exception as e:
+            logger.warning(f"加载英雄数据失败（启动后可重试）: {e}")
+
+    print(f"""
+╔══════════════════════════════════════════════╗
+║     英雄联盟战绩查询 - 第三方网站                ║
+║                                              ║
+║  浏览器访问: http://localhost:{args.port}          ║
+║                                              ║
+║  支持服务器:                                   ║
+""" + "\n".join(f"║    {code}: {info['name']}" for code, info in SERVERS.items()) + f"""
+║                                              ║
+║  注意: 国服暂不支持 Riot API                    ║
+║  国服用户请使用 LCU 本地版                      ║
+╚══════════════════════════════════════════════╝
+    """)
+
+    app.run(host=args.host, port=args.port, debug=args.debug)
