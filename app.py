@@ -327,6 +327,28 @@ def api_champions():
     return jsonify(riot._champion_map)
 
 
+# ========== 图片代理（解决国内无法访问拳头CDN的问题）==========
+
+@app.route("/img/<path:img_path>")
+def proxy_image(img_path):
+    """代理拳头 CDN 图片"""
+    img_url = f"https://ddragon.leagueoflegends.com/cdn/14.20.1/img/{img_path}"
+    try:
+        resp = requests.get(img_url, timeout=10, stream=True)
+        if resp.status_code == 200:
+            return resp.content, 200, {"Content-Type": resp.headers.get("Content-Type", "image/png")}
+    except Exception:
+        pass
+    # 尝试备用 CDN
+    try:
+        resp = requests.get(f"https://ddragon.canisback.com/img/{img_path}", timeout=10, stream=True)
+        if resp.status_code == 200:
+            return resp.content, 200, {"Content-Type": resp.headers.get("Content-Type", "image/png")}
+    except Exception:
+        pass
+    return "", 404
+
+
 @app.route("/api/debug-search")
 def api_debug_search():
     """调试搜索 - 返回所有搜索方式的原始结果"""

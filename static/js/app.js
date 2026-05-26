@@ -13,7 +13,7 @@ let currentState = {
 };
 
 // Riot API -> CDN 图片基准 URL
-const DD_BASE = 'https://ddragon.leagueoflegends.com/cdn/14.20.1/img';
+const DD_BASE = '/img';
 
 // ============== DOM 引用 ==============
 const $ = (id) => document.getElementById(id);
